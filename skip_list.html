@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Skip List in Rust</title>
+    <style type="text/css">
+@import url("theme-light.css") (prefers-color-scheme: light);
+@import url("theme-dark.css") (prefers-color-scheme: dark);
+
+body {
+    font-family: sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+    body {
+        background-color: #303033;
+        color: white;
+    }
+    a {
+        color: #31b2c4;
+    }
+    a:hover {
+        color: #34e2f9;
+    }
+    a:visited {
+        color: #337e87;
+    }
+    .code {
+        background-color: #212424;
+    }
+    .storage {
+        color: #86d583;
+    }
+    .variable {
+        color: #eadd76;
+    }
+    .constant.numeric {
+        color: #fb6c6c;
+    }
+    .doc_block code {
+        color: #87d6b5;
+    }
+}
+@media (prefers-color-scheme: light) {
+    body {
+        background-color: #eae5d9;
+    }
+    a {
+        color: #216294;
+    }
+    a:hover {
+        color: #2482a9;
+    }
+    a:visited {
+        color: #446289;
+    }
+    .doc_block code {
+        color: #089f3d;
+    }
+}
+pre {
+    font-size:13px;
+    font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+}
+h1 {
+    margin-top: 25px;
+    margin-bottom: 0;
+}
+
+.row {
+    margin: 0 auto;
+    max-width: 700px;
+}
+.doc_group {
+    flex-grow: 1;
+    padding: 0 20px;
+}
+.code_block {
+    flex-grow: 1;
+}
+.code {
+    padding: 20px;
+}
+
+@media screen and (min-width: 1400px) {
+    .row {
+        display: flex;
+        flex-direction: row;
+        max-width: 1400px;
+    }
+    .doc_group {
+        width: 50%;
+    }
+    .code_block {
+        width: 780px;
+        padding: 10px 0;
+    }
+}
+
+    </style>
+  </head>
+  <body>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<h2>skip_list</h2>
+<p>An implementation of the Skip List data structure in Rust.
+By <a href="https://github.com/masonblier">masonblier</a> 2025-07-07</p>
+
+</div>
+<div class="doc_block">
+<p>Skip lists are a sorted, fast-access data structure with similar performance
+characteristics to a balanced binary tree, made famous in the
+<a href="https://www.youtube.com/watch?v=2g9OSRKJuzM">MIT OpenCourseWare lecture by Professor Srinivas Devadas</a>.</p>
+<p>Having <code>O(log(N))</code> insertion and retrieval, the main advantage skip lists have over a binary
+tree is that they never have to be rebalanced, the data in memory stays largely consistent over
+many write operations. However, as data structure with randomization as a core feature, the
+performance can vary depending on the outcome of the random number generator, which determines
+which items are propagated to the "fast lane" search vectors. They also use more memory compared
+to a compactified binary tree. Some databases using Skip Lists in production include
+<a href="https://lucene.apache.org/">Apache Lucene</a>, <a href="https://redis.io/">Redis</a>, and <a href="https://rocksdb.org/">RocksDB</a>.</p>
+
+</div>
+  </div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<h1>Type Definitions</h1>
+
+</div>
+  </div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>Starting off, I import some useful tools. The PartialOrd trait defines comparator functions for
+types, which is required so I sort the values inserted into the SkipList for fast access.
+fmt is used later on to define a convenient display function, showing the inner structure of the list.
+And critically, rand::Rng is a third-party library for generating random numbers, used to probabilistically
+distribute the values in the fast-lane.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="keyword other rust">use</span> <span class="meta path rust">std<span class="punctuation accessor rust">::</span></span><span class="meta path rust">cmp<span class="punctuation accessor rust">::</span></span>PartialOrd<span class="punctuation terminator rust">;</span>
+<span class="keyword other rust">use</span> <span class="meta path rust">std<span class="punctuation accessor rust">::</span></span>fmt<span class="punctuation terminator rust">;</span>
+<span class="keyword other rust">use</span> <span class="meta path rust">rand<span class="punctuation accessor rust">::</span></span>Rng<span class="punctuation terminator rust">;</span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>The number of "fast-lane" layers affects the performance traits of the list. A single layer is
+equivalent to a flat linked-list, with no performance gains. But too many layers increases the
+memory usage with duplicated data. The ideal number of layers is the <code>log2(N)</code> of the number of elements
+in the list, but here I chose a smaller number to make debugging simpler.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="storage type rust">const</span> <span class="constant other rust">SKIP_LIST_LAYERS</span><span class="punctuation separator rust">:</span> <span class="storage type rust">usize</span> <span class="keyword operator rust">=</span> <span class="constant numeric integer decimal rust">3</span><span class="punctuation terminator rust">;</span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>The <code>SkipList</code> struct is the public-facing type which users can interact with. It defines a number
+of public methods below to allow inserting and retrieving values, but the internal data is private.
+The layers field holds all the nodes in an unsorted <code>Vec</code>. The order does not matter, as ordering is done
+by following links between the nodes. I chose to store these nodes in a <code>Vec</code>, with links referring to
+indexes in the <code>Vec</code>, to avoid complications with the borrow checker involving Rust types with duplicate
+references to the same data.</p>
+
+</div>
+<div class="doc_block">
+<p>The rust book <a href="https://rust-unofficial.github.io/too-many-lists/index.html">Learn Rust With Entirely Too Many Linked Lists</a>
+is an entertaining tale of one developer's journey in implementing a Linked List in Rust, encountering and
+detailing the many complex situations with accessing and mutating shared references.</p>
+
+</div>
+<div class="doc_block">
+<p>Here, I avoid all of this by using <code>usize</code> indexing into a <code>Vec</code>, similar to how an arena would handle memory.
+The tradeoff is an additional layer of indirection, and the requirement that these indexes cannot
+change or move around. But it is not 'unsafe', as to mutate any of the internal data, a proper mutable
+reference to the <code>SkipList</code> is still required.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="meta struct rust"><span class="storage modifier rust">pub</span> <span class="storage type struct rust">struct</span> </span><span class="meta struct rust"><span class="meta generic rust"><span class="entity name struct rust">SkipList</span><span class="meta generic rust"><span class="punctuation definition generic begin rust">&lt;</span>T<span class="punctuation definition generic end rust">&gt;</span></span></span></span><span class="meta struct rust"> </span><span class="meta struct rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+    <span class="variable other member rust">layers</span><span class="punctuation separator rust">:</span> [<span class="meta generic rust">Vec<span class="punctuation definition generic begin rust">&lt;</span><span class="meta generic rust">SkipListNode<span class="punctuation definition generic begin rust">&lt;</span>T<span class="punctuation definition generic end rust">&gt;</span></span><span class="punctuation definition generic end rust">&gt;</span></span>; SKIP_LIST_LAYERS],
+    <span class="variable other member rust">head</span><span class="punctuation separator rust">:</span> [<span class="meta generic rust">Option<span class="punctuation definition generic begin rust">&lt;</span><span class="storage type rust">usize</span><span class="punctuation definition generic end rust">&gt;</span></span>; SKIP_LIST_LAYERS],
+</span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>The SkipListNode is an internal type storing links between values, and links from fast-lane values
+down to lower layers. Only the lowest layer in the SkipList, <code>layers[0]</code>, stores all values. Nodes in
+the lowest layer have no <code>down</code> references.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="meta struct rust"><span class="storage type struct rust">struct</span> </span><span class="meta struct rust"><span class="meta generic rust"><span class="entity name struct rust">SkipListNode</span><span class="meta generic rust"><span class="punctuation definition generic begin rust">&lt;</span>T<span class="punctuation definition generic end rust">&gt;</span></span></span></span><span class="meta struct rust"> </span><span class="meta struct rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+    <span class="variable other member rust">value</span><span class="punctuation separator rust">:</span> T,
+    <span class="variable other member rust">next</span><span class="punctuation separator rust">:</span> <span class="meta generic rust">Option<span class="punctuation definition generic begin rust">&lt;</span><span class="storage type rust">usize</span><span class="punctuation definition generic end rust">&gt;</span></span>,
+    <span class="variable other member rust">down</span><span class="punctuation separator rust">:</span> <span class="meta generic rust">Option<span class="punctuation definition generic begin rust">&lt;</span><span class="storage type rust">usize</span><span class="punctuation definition generic end rust">&gt;</span></span>,
+</span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<h1>Implementation</h1>
+
+</div>
+  </div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>Here are implementations of the public-facing functions for this type.</p>
+
+</div>
+<div class="doc_block">
+<p>Implementing <code>Default</code> as the constructor allows this struct to be used automatically in any other types
+which implement the <code>Default</code> trait, including types defined with the <code>#[derive(Default)]</code> attribute.
+The initial data is a list of empty <code>Vec</code>s for each layer of the data structure, and a set of empty head
+references which will eventually point to the first node in each layer.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="meta impl rust"><span class="storage type impl rust">impl</span></span><span class="meta impl rust"><span class="meta generic rust"><span class="punctuation definition generic begin rust">&lt;</span>T<span class="punctuation definition generic end rust">&gt;</span></span></span><span class="meta impl rust"> Default <span class="keyword other rust">for</span></span><span class="meta impl rust"> <span class="entity name impl rust">SkipList</span><span class="meta generic rust"><span class="punctuation definition generic begin rust">&lt;</span>T<span class="punctuation definition generic end rust">&gt;</span></span> </span><span class="meta impl rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+    <span class="meta function rust"><span class="meta function rust"><span class="storage type function rust">fn</span> </span><span class="entity name function rust">default</span></span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters begin rust">(</span></span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters end rust">)</span></span></span></span><span class="meta function rust"> <span class="meta function return-type rust"><span class="punctuation separator rust">-&gt;</span> <span class="storage type rust">Self</span></span> </span><span class="meta function rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+        <span class="storage type rust">Self</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+            layers<span class="punctuation separator rust">:</span> <span class="meta group rust"><span class="punctuation section group begin rust">[</span><span class="storage type rust">const</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span> <span class="support type rust">Vec</span><span class="meta path rust"><span class="punctuation accessor rust">::</span></span>new<span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span> </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span><span class="punctuation separator rust">;</span> <span class="constant other rust">SKIP_LIST_LAYERS</span><span class="punctuation section group end rust">]</span></span><span class="punctuation separator rust">,</span>
+            head<span class="punctuation separator rust">:</span> <span class="meta group rust"><span class="punctuation section group begin rust">[</span><span class="storage type rust">const</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span> <span class="support type rust">None</span> </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span><span class="punctuation separator rust">;</span> <span class="constant other rust">SKIP_LIST_LAYERS</span><span class="punctuation section group end rust">]</span></span><span class="punctuation separator rust">,</span>
+        </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+    </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span>
+</span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>While <code>SkipList</code> is generic, and can take user-provided types of <code>T</code>, it requires that <code>T</code> implements
+the <code>PartialOrd</code> and <code>Clone</code> traits. <code>PartialOrd</code> is required for <code>&lt;</code>, <code>&gt;</code>, and <code>==</code> comparisons critical
+for any sorted data structure. <code>Clone</code> is required so that copies of the values can be stored directly in
+the fast-lanes, allowing for faster searching. For large values, it would be better to store references
+to <code>&amp;T</code> to reduce memory duplication, but it would require managing shared references to ensure compliance
+with the borrow checker.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="meta impl rust"><span class="storage type impl rust">impl</span></span><span class="meta impl rust"><span class="meta generic rust"><span class="punctuation definition generic begin rust">&lt;</span>T<span class="punctuation separator rust">:</span> PartialOrd <span class="keyword operator rust">+</span> Clone<span class="punctuation definition generic end rust">&gt;</span></span></span><span class="meta impl rust"> <span class="entity name impl rust">SkipList</span><span class="meta generic rust"><span class="punctuation definition generic begin rust">&lt;</span>T<span class="punctuation definition generic end rust">&gt;</span></span> </span><span class="meta impl rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span></span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>The <code>insert</code> method is where all the fun happens in a <code>SkipList</code>. The new value must be inserted in a sorted
+location in the list, and based on the roll of a random number generator, inserted into a number of fast-lanes
+to speed up searching for the value. The more fast-lanes a value is in, the faster it can be found, but if too
+many values are inserted into the fast lanes, the whole list slows down, up to a worst-case amoratized scenario
+of linear time.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust">    <span class="meta function rust"><span class="meta function rust"><span class="storage modifier rust">pub</span> <span class="storage type function rust">fn</span> </span><span class="entity name function rust">insert</span></span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters begin rust">(</span><span class="keyword operator rust">&amp;</span><span class="storage modifier rust">mut</span> <span class="variable parameter rust">self</span>, <span class="variable parameter rust">v</span><span class="punctuation separator rust">:</span> T</span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters end rust">)</span></span></span></span><span class="meta function rust"> </span><span class="meta function rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+        <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> randomize number of insert layers
+</span>        <span class="storage type rust">let</span> num_insert_layers <span class="keyword operator rust">=</span> <span class="keyword control rust">if</span> <span class="variable language rust">self</span>.head<span class="meta group rust"><span class="punctuation section group begin rust">[</span><span class="constant numeric integer decimal rust">0</span><span class="punctuation section group end rust">]</span></span>.<span class="support function rust">is_none</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+            <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> insert node into all layers
+</span>            <span class="constant other rust">SKIP_LIST_LAYERS</span>
+        </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span> <span class="keyword control rust">else</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+            <span class="constant numeric integer decimal rust">1</span> <span class="keyword operator rust">+</span> <span class="meta path rust">rand<span class="punctuation accessor rust">::</span></span>rng<span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>.<span class="support function rust">random_range</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="constant numeric integer decimal rust">0</span><span class="keyword operator rust">..</span><span class="constant other rust">SKIP_LIST_LAYERS</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+        </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span><span class="punctuation terminator rust">;</span></span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>Finding the insertion point requires going through the layers, first from the most-sparse layer, then down to
+the most complete layer, until the insert location of the value is found in all layers. A list of the nodes
+closest to the insert point is kept to quickly update these nodes with pointers to the newly inserted node.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust">        <span class="storage type rust">let</span> <span class="storage modifier rust">mut</span> layer_start_idx <span class="keyword operator rust">=</span> <span class="variable language rust">self</span>.head<span class="meta group rust"><span class="punctuation section group begin rust">[</span><span class="constant other rust">SKIP_LIST_LAYERS</span><span class="keyword operator rust">-</span><span class="constant numeric integer decimal rust">1</span><span class="punctuation section group end rust">]</span></span><span class="punctuation terminator rust">;</span>
+        <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> store list of node idxs for insertion
+</span>        <span class="storage type rust">let</span> <span class="storage modifier rust">mut</span> insert_list <span class="keyword operator rust">=</span> <span class="meta group rust"><span class="punctuation section group begin rust">[</span><span class="storage type rust">const</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span> <span class="support type rust">None</span> </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span><span class="punctuation separator rust">;</span> <span class="constant other rust">SKIP_LIST_LAYERS</span><span class="punctuation section group end rust">]</span></span><span class="punctuation terminator rust">;</span>
+        <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> for each layer
+</span>        <span class="keyword control rust">for</span> rlayer <span class="keyword operator rust">in</span> <span class="constant numeric integer decimal rust">0</span><span class="keyword operator rust">..</span><span class="constant other rust">SKIP_LIST_LAYERS</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+            <span class="storage type rust">let</span> layer <span class="keyword operator rust">=</span> <span class="constant other rust">SKIP_LIST_LAYERS</span> <span class="keyword operator rust">-</span> <span class="constant numeric integer decimal rust">1</span> <span class="keyword operator rust">-</span> rlayer<span class="punctuation terminator rust">;</span>
+            <span class="storage type rust">let</span> <span class="storage modifier rust">mut</span> node_idx <span class="keyword operator rust">=</span> layer_start_idx.<span class="support function rust">clone</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+            <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> if front insertion
+</span>            <span class="keyword control rust">if</span> node_idx.<span class="support function rust">is_none</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span> <span class="keyword operator rust">|</span><span class="keyword operator rust">|</span> v <span class="keyword operator rust">&lt;</span> <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>node_idx.<span class="support function rust">unwrap</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation section group end rust">]</span></span>.value  <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                insert_list<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span> <span class="keyword operator rust">=</span> <span class="support type rust">None</span><span class="punctuation terminator rust">;</span>
+                <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> set next layer start idx to none
+</span>                <span class="keyword control rust">if</span> layer <span class="keyword operator rust">&gt;</span> <span class="constant numeric integer decimal rust">0</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                    layer_start_idx <span class="keyword operator rust">=</span> <span class="variable language rust">self</span>.head<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="keyword operator rust">-</span><span class="constant numeric integer decimal rust">1</span><span class="punctuation section group end rust">]</span></span><span class="punctuation terminator rust">;</span>
+                </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+
+            <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> if existing element
+</span>            </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span> <span class="keyword control rust">else</span> <span class="keyword control rust">if</span> v <span class="keyword operator rust">=</span><span class="keyword operator rust">=</span> <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>node_idx.<span class="support function rust">unwrap</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation section group end rust">]</span></span>.value <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                <span class="keyword control rust">return</span><span class="punctuation terminator rust">;</span>
+
+            <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> else, find insertion index of current layer
+</span>            </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span> <span class="keyword control rust">else</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                <span class="keyword control rust">loop</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                    <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> check the next node in the sequence
+</span>                    <span class="storage type rust">let</span> next_idx <span class="keyword operator rust">=</span> <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>node_idx.<span class="support function rust">unwrap</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation section group end rust">]</span></span>.next<span class="punctuation terminator rust">;</span>
+                    <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> if the end of the sequence has been reached, use last node
+</span>                    <span class="keyword control rust">if</span> next_idx.<span class="support function rust">is_none</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                        <span class="keyword control rust">break</span><span class="punctuation terminator rust">;</span>
+                    </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+                    <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> if the next node is greater than the value, use last node
+</span>                    <span class="keyword control rust">if</span> v <span class="keyword operator rust">&lt;</span> <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>next_idx.<span class="support function rust">unwrap</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation section group end rust">]</span></span>.value <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                        <span class="keyword control rust">break</span><span class="punctuation terminator rust">;</span>
+                    </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+                    <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> continue
+</span>                    node_idx <span class="keyword operator rust">=</span> next_idx<span class="punctuation terminator rust">;</span>
+                </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+
+                <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> set insert index to found node
+</span>                insert_list<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span> <span class="keyword operator rust">=</span> node_idx.<span class="support function rust">clone</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+                <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> set next layer start idx to down value of found node
+</span>                layer_start_idx <span class="keyword operator rust">=</span> <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>node_idx.<span class="support function rust">unwrap</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation section group end rust">]</span></span>.down<span class="punctuation terminator rust">;</span>
+            </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+        </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>Now that I have a list of nodes which need to be updated, the new node can be inserted. Starting with
+the lowest layer this time, the node is inserted into the unsorted <code>Vec</code> of all nodes, and the index to
+the new node is set as the <code>next</code> of the node it was inserted after.</p>
+
+</div>
+<div class="doc_block">
+<p>I continue up the layers for the amount of layers given by the random number generator. For each layer,
+the new node is inserted, the neighboring links are updated, and the <code>down</code> is set to the index of the
+node in the lower layer.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust">        <span class="storage type rust">let</span> <span class="storage modifier rust">mut</span> last_insert<span class="punctuation separator rust">:</span> <span class="meta generic rust">Option<span class="punctuation definition generic begin rust">&lt;</span><span class="storage type rust">usize</span><span class="punctuation definition generic end rust">&gt;</span></span> <span class="keyword operator rust">=</span> <span class="support type rust">None</span><span class="punctuation terminator rust">;</span>
+        <span class="keyword control rust">for</span> layer <span class="keyword operator rust">in</span> <span class="constant numeric integer decimal rust">0</span><span class="keyword operator rust">..</span>num_insert_layers <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+            <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> get old next value of insert-parent node
+</span>            <span class="storage type rust">let</span> next <span class="keyword operator rust">=</span> <span class="keyword control rust">if</span> <span class="storage type rust">let</span> <span class="support type rust">Some</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span>insert_idx</span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span> <span class="keyword operator rust">=</span> insert_list<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>insert_idx<span class="punctuation section group end rust">]</span></span>.next.<span class="support function rust">clone</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+            </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span> <span class="keyword control rust">else</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                <span class="variable language rust">self</span>.head<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span>
+            </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span><span class="punctuation terminator rust">;</span>
+            <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> insert new node into memory
+</span>            <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span>.<span class="support function rust">push</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span>
+                SkipListNode <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                    value<span class="punctuation separator rust">:</span> v.<span class="support function rust">clone</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation separator rust">,</span>
+                    next<span class="punctuation separator rust">,</span>
+                    down<span class="punctuation separator rust">:</span> last_insert.<span class="support function rust">clone</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation separator rust">,</span>
+                </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+            </span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+            last_insert <span class="keyword operator rust">=</span> <span class="support type rust">Some</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span>.<span class="support function rust">len</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span> <span class="keyword operator rust">-</span> <span class="constant numeric integer decimal rust">1</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+            <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> update next value of insert-parent node
+</span>            <span class="keyword control rust">if</span> <span class="storage type rust">let</span> <span class="support type rust">Some</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span>insert_idx</span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span> <span class="keyword operator rust">=</span> insert_list<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>insert_idx<span class="punctuation section group end rust">]</span></span>.next <span class="keyword operator rust">=</span> last_insert.<span class="support function rust">clone</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+            </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span> <span class="keyword control rust">else</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                <span class="variable language rust">self</span>.head<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span> <span class="keyword operator rust">=</span> last_insert.<span class="support function rust">clone</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+            </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+        </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+    }</span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>The <code>contains</code> method is similar to the first part of the <code>insert</code> method, I trace from the sparsest
+layer to find the nearest node to the value, which directs <code>down</code> to the point in the lower layer where
+the next search can begin. This continues until the value is found, at which point we know the list contains
+the value and <code>true</code> is returned, or until the node is confirmed missing and <code>false</code> can be returned.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust">    <span class="meta function rust"><span class="meta function rust"><span class="storage modifier rust">pub</span> <span class="storage type function rust">fn</span> </span><span class="entity name function rust">contains</span></span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters begin rust">(</span><span class="keyword operator rust">&amp;</span><span class="variable parameter rust">self</span>, <span class="variable parameter rust">v</span><span class="punctuation separator rust">:</span> T</span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters end rust">)</span></span></span></span><span class="meta function rust"> <span class="meta function return-type rust"><span class="punctuation separator rust">-&gt;</span> <span class="storage type rust">bool</span></span> </span><span class="meta function rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+        <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> starting point of layer
+</span>        <span class="storage type rust">let</span> <span class="storage modifier rust">mut</span> layer_start_idx <span class="keyword operator rust">=</span> <span class="variable language rust">self</span>.head<span class="meta group rust"><span class="punctuation section group begin rust">[</span><span class="constant other rust">SKIP_LIST_LAYERS</span><span class="keyword operator rust">-</span><span class="constant numeric integer decimal rust">1</span><span class="punctuation section group end rust">]</span></span><span class="punctuation terminator rust">;</span>
+        <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> for each layer
+</span>        <span class="keyword control rust">for</span> rlayer <span class="keyword operator rust">in</span> <span class="constant numeric integer decimal rust">0</span><span class="keyword operator rust">..</span><span class="constant other rust">SKIP_LIST_LAYERS</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+            <span class="storage type rust">let</span> layer <span class="keyword operator rust">=</span> <span class="constant other rust">SKIP_LIST_LAYERS</span> <span class="keyword operator rust">-</span> <span class="constant numeric integer decimal rust">1</span> <span class="keyword operator rust">-</span> rlayer<span class="punctuation terminator rust">;</span>
+            <span class="storage type rust">let</span> <span class="storage modifier rust">mut</span> node_idx <span class="keyword operator rust">=</span> layer_start_idx.<span class="support function rust">clone</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+            <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> if empty
+</span>            <span class="keyword control rust">if</span> node_idx.<span class="support function rust">is_none</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                <span class="keyword control rust">return</span> <span class="constant language rust">false</span><span class="punctuation terminator rust">;</span>
+            </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+            <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> if immediate match
+</span>            <span class="keyword control rust">if</span> v <span class="keyword operator rust">=</span><span class="keyword operator rust">=</span> <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>node_idx.<span class="support function rust">unwrap</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation section group end rust">]</span></span>.value <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                <span class="keyword control rust">return</span> <span class="constant language rust">true</span><span class="punctuation terminator rust">;</span>
+            </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+            <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> keep looking
+</span>            <span class="keyword control rust">loop</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                <span class="storage type rust">let</span> next_idx <span class="keyword operator rust">=</span> <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>node_idx.<span class="support function rust">unwrap</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation section group end rust">]</span></span>.next<span class="punctuation terminator rust">;</span>
+                <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> end of list
+</span>                <span class="keyword control rust">if</span> next_idx.<span class="support function rust">is_none</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                    <span class="keyword control rust">break</span><span class="punctuation terminator rust">;</span>
+                </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+                <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> passed value
+</span>                <span class="keyword control rust">if</span> v <span class="keyword operator rust">&lt;</span> <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>next_idx.<span class="support function rust">unwrap</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation section group end rust">]</span></span>.value <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                    <span class="keyword control rust">break</span><span class="punctuation terminator rust">;</span>
+                </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+                <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> continue
+</span>                node_idx <span class="keyword operator rust">=</span> next_idx<span class="punctuation terminator rust">;</span>
+            </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+            <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> set next layer start idx to down value of last closest node
+</span>            layer_start_idx <span class="keyword operator rust">=</span> <span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>node_idx.<span class="support function rust">unwrap</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation section group end rust">]</span></span>.down<span class="punctuation terminator rust">;</span>
+        </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+        <span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> no match
+</span>        <span class="constant language rust">false</span>
+    </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span>
+}</span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>This <code>fmt</code> implementation is used for Rust's <code>Display</code> trait, allowing the entire list to be
+formatted as a string for printing to the console. This method gives a view of each layer,
+showing the tree-like structure of the <code>SkipList</code>. An example of the output:</p>
+<pre><code>SkipList
+[      03,  07,                      18,  22,      ]
+[ 01,  03,  07,       11,  12,  16,  18,  22,  99, ]
+[ 01,  03,  07,  09,  11,  12,  16,  18,  22,  99, ]
+</code></pre>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="meta impl rust"><span class="storage type impl rust">impl</span></span><span class="meta impl rust"><span class="meta generic rust"><span class="punctuation definition generic begin rust">&lt;</span>T<span class="punctuation separator rust">:</span> PartialOrd <span class="keyword operator rust">+</span> Clone <span class="keyword operator rust">+</span> <span class="meta path rust">fmt<span class="punctuation accessor rust">::</span></span>Display<span class="punctuation definition generic end rust">&gt;</span></span></span><span class="meta impl rust"> <span class="meta path rust">fmt<span class="punctuation accessor rust">::</span></span>Display <span class="keyword other rust">for</span></span><span class="meta impl rust"> <span class="entity name impl rust">SkipList</span><span class="meta generic rust"><span class="punctuation definition generic begin rust">&lt;</span>T<span class="punctuation definition generic end rust">&gt;</span></span> </span><span class="meta impl rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+    <span class="meta function rust"><span class="meta function rust"><span class="storage type function rust">fn</span> </span><span class="entity name function rust">fmt</span></span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters begin rust">(</span><span class="keyword operator rust">&amp;</span><span class="variable parameter rust">self</span>, <span class="variable parameter rust">f</span><span class="punctuation separator rust">:</span> <span class="keyword operator rust">&amp;</span><span class="storage modifier rust">mut</span> <span class="meta path rust">fmt<span class="punctuation accessor rust">::</span></span>Formatter</span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters end rust">)</span></span></span></span><span class="meta function rust"> <span class="meta function return-type rust"><span class="punctuation separator rust">-&gt;</span> <span class="meta path rust">fmt<span class="punctuation accessor rust">::</span></span>Result</span> </span><span class="meta function rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+        <span class="storage type rust">let</span> <span class="storage modifier rust">mut</span> base_list <span class="keyword operator rust">=</span> <span class="support type rust">Vec</span><span class="punctuation separator rust">:</span><span class="punctuation separator rust">:</span><span class="meta generic rust"><span class="punctuation definition generic begin rust">&lt;</span>T<span class="punctuation definition generic end rust">&gt;</span></span><span class="meta path rust"><span class="punctuation accessor rust">::</span></span>new<span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+        <span class="storage type rust">let</span> <span class="storage modifier rust">mut</span> node_idx <span class="keyword operator rust">=</span> <span class="variable language rust">self</span>.head<span class="meta group rust"><span class="punctuation section group begin rust">[</span><span class="constant numeric integer decimal rust">0</span><span class="punctuation section group end rust">]</span></span><span class="punctuation terminator rust">;</span>
+        <span class="keyword control rust">while</span> node_idx.<span class="support function rust">is_some</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+            <span class="storage type rust">let</span> node <span class="keyword operator rust">=</span> <span class="keyword operator rust">&amp;</span><span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span><span class="constant numeric integer decimal rust">0</span><span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>node_idx.<span class="support function rust">unwrap</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation section group end rust">]</span></span><span class="punctuation terminator rust">;</span>
+            base_list.<span class="support function rust">push</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span>node.value.<span class="support function rust">clone</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+            node_idx <span class="keyword operator rust">=</span> node.next<span class="punctuation terminator rust">;</span>
+        </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+        <span class="storage type rust">let</span> out1 <span class="keyword operator rust">=</span> <span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="constant numeric integer decimal rust">1</span><span class="keyword operator rust">..</span><span class="constant other rust">SKIP_LIST_LAYERS</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>.<span class="support function rust">map</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="meta function closure rust"><span class="meta function parameters rust"><span class="punctuation section parameters begin rust">|</span></span></span><span class="meta function closure rust"><span class="meta function parameters rust"><span class="variable parameter rust">rlayer</span><span class="punctuation section parameters end rust">|</span></span> </span><span class="meta function closure rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+            <span class="storage type rust">let</span> layer <span class="keyword operator rust">=</span> <span class="constant other rust">SKIP_LIST_LAYERS</span> <span class="keyword operator rust">-</span> rlayer<span class="punctuation terminator rust">;</span>
+            <span class="storage type rust">let</span> <span class="storage modifier rust">mut</span> outln <span class="keyword operator rust">=</span> <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span>[<span class="punctuation definition string end rust">&quot;</span></span>.<span class="support function rust">to_string</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+            <span class="storage type rust">let</span> <span class="storage modifier rust">mut</span> node_idx <span class="keyword operator rust">=</span> <span class="variable language rust">self</span>.head<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="punctuation terminator rust">;</span>
+            <span class="keyword control rust">for</span> b <span class="keyword operator rust">in</span> <span class="keyword operator rust">&amp;</span>base_list <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                <span class="keyword control rust">if</span> node_idx.<span class="support function rust">is_some</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                    <span class="storage type rust">let</span> node <span class="keyword operator rust">=</span> <span class="keyword operator rust">&amp;</span><span class="variable language rust">self</span>.layers<span class="meta group rust"><span class="punctuation section group begin rust">[</span>layer<span class="punctuation section group end rust">]</span></span><span class="meta group rust"><span class="punctuation section group begin rust">[</span>node_idx.<span class="support function rust">unwrap</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation section group end rust">]</span></span><span class="punctuation terminator rust">;</span>
+                    <span class="keyword control rust">if</span> <span class="keyword operator rust">*</span>b <span class="keyword operator rust">=</span><span class="keyword operator rust">=</span> node.value <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                        outln <span class="keyword operator rust">+</span><span class="keyword operator rust">=</span> <span class="support macro rust">format!</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span> <span class="constant other placeholder rust">{:02}</span>, <span class="punctuation definition string end rust">&quot;</span></span></span><span class="meta group rust"><span class="punctuation separator rust">,</span> node.value<span class="punctuation section group end rust">)</span></span>.<span class="support function rust">as_str</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+                        node_idx <span class="keyword operator rust">=</span> node.next<span class="punctuation terminator rust">;</span>
+                    </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span> <span class="keyword control rust">else</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                        outln <span class="keyword operator rust">+</span><span class="keyword operator rust">=</span> <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span>     <span class="punctuation definition string end rust">&quot;</span></span><span class="punctuation terminator rust">;</span>
+                    </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+                </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span> <span class="keyword control rust">else</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+                    outln <span class="keyword operator rust">+</span><span class="keyword operator rust">=</span> <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span>     <span class="punctuation definition string end rust">&quot;</span></span><span class="punctuation terminator rust">;</span>
+                </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+            </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+            outln <span class="keyword operator rust">+</span><span class="keyword operator rust">=</span> <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span>]<span class="punctuation definition string end rust">&quot;</span></span><span class="punctuation terminator rust">;</span>
+            outln
+        </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>.<span class="meta path rust">collect<span class="punctuation accessor rust">::</span></span><span class="meta generic rust"><span class="punctuation definition generic begin rust">&lt;</span><span class="meta generic rust">Vec<span class="punctuation definition generic begin rust">&lt;</span>String<span class="punctuation definition generic end rust">&gt;</span></span><span class="punctuation definition generic end rust">&gt;</span></span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>.<span class="support function rust">join</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span><span class="constant character escape rust">\n</span><span class="punctuation definition string end rust">&quot;</span></span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+        <span class="storage type rust">let</span> out2 <span class="keyword operator rust">=</span> base_list.<span class="support function rust">iter</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+            .<span class="support function rust">map</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="meta function closure rust"><span class="meta function parameters rust"><span class="punctuation section parameters begin rust">|</span></span></span><span class="meta function closure rust"><span class="meta function parameters rust"><span class="variable parameter rust">v</span><span class="punctuation section parameters end rust">|</span></span> </span><span class="meta function closure rust"><span class="support macro rust">format!</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span> <span class="constant other placeholder rust">{:02}</span>, <span class="punctuation definition string end rust">&quot;</span></span></span><span class="meta group rust"><span class="punctuation separator rust">,</span> v<span class="punctuation section group end rust">)</span></span></span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>.<span class="meta path rust">collect<span class="punctuation accessor rust">::</span></span><span class="meta generic rust"><span class="punctuation definition generic begin rust">&lt;</span><span class="meta generic rust">Vec<span class="punctuation definition generic begin rust">&lt;</span>String<span class="punctuation definition generic end rust">&gt;</span></span><span class="punctuation definition generic end rust">&gt;</span></span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>.<span class="support function rust">join</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span><span class="punctuation definition string end rust">&quot;</span></span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+        <span class="storage type rust">let</span> out <span class="keyword operator rust">=</span> out1 <span class="keyword operator rust">+</span> <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span><span class="constant character escape rust">\n</span>[<span class="punctuation definition string end rust">&quot;</span></span> <span class="keyword operator rust">+</span> <span class="keyword operator rust">&amp;</span>out2 <span class="keyword operator rust">+</span> <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span>]<span class="punctuation definition string end rust">&quot;</span></span><span class="punctuation terminator rust">;</span>
+        <span class="support macro rust">write!</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust">f,</span><span class="meta group rust"> <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span><span class="constant other placeholder rust">{}</span><span class="punctuation definition string end rust">&quot;</span></span></span><span class="meta group rust"><span class="punctuation separator rust">,</span> out<span class="punctuation section group end rust">)</span></span>
+    </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span>
+</span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>Included unit-tests can be run from <code>cargo test</code> for a quick smoke-test verification
+of the public methods.</p>
+<pre><code>running 1 test
+test skip_list::test::basics ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored;
+  0 measured; 0 filtered out; finished in 0.00s
+</code></pre>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">cfg</span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span></span><span class="meta annotation parameters rust"><span class="meta group rust">test</span></span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="punctuation section group end rust">]</span></span>
+<span class="meta module rust"><span class="storage type module rust">mod</span> <span class="entity name module rust">test</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+    <span class="keyword other rust">use</span> <span class="meta path rust"><span class="keyword other rust">super</span><span class="punctuation accessor rust">::</span></span>SkipList<span class="punctuation terminator rust">;</span>
+
+    <span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">test</span><span class="punctuation section group end rust">]</span></span>
+    <span class="meta function rust"><span class="meta function rust"><span class="storage type function rust">fn</span> </span><span class="entity name function rust">basics</span></span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters begin rust">(</span></span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters end rust">)</span></span></span></span><span class="meta function rust"> </span><span class="meta function rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+        <span class="storage type rust">let</span> nums<span class="punctuation separator rust">:</span> <span class="meta group rust"><span class="punctuation section group begin rust">[</span><span class="storage type rust">i64</span><span class="punctuation separator rust">;</span> <span class="constant numeric integer decimal rust">10</span><span class="punctuation section group end rust">]</span></span> <span class="keyword operator rust">=</span> <span class="meta group rust"><span class="punctuation section group begin rust">[</span><span class="constant numeric integer decimal rust">3</span><span class="punctuation separator rust">,</span> <span class="constant numeric integer decimal rust">1</span><span class="punctuation separator rust">,</span> <span class="constant numeric integer decimal rust">9</span><span class="punctuation separator rust">,</span> <span class="constant numeric integer decimal rust">12</span><span class="punctuation separator rust">,</span> <span class="constant numeric integer decimal rust">11</span><span class="punctuation separator rust">,</span> <span class="constant numeric integer decimal rust">16</span><span class="punctuation separator rust">,</span> <span class="constant numeric integer decimal rust">99</span><span class="punctuation separator rust">,</span> <span class="constant numeric integer decimal rust">18</span><span class="punctuation separator rust">,</span> <span class="constant numeric integer decimal rust">7</span><span class="punctuation separator rust">,</span> <span class="constant numeric integer decimal rust">22</span><span class="punctuation section group end rust">]</span></span><span class="punctuation terminator rust">;</span>
+
+        <span class="storage type rust">let</span> <span class="storage modifier rust">mut</span> skip_list <span class="keyword operator rust">=</span> <span class="meta path rust">SkipList<span class="punctuation accessor rust">::</span></span>default<span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+        <span class="keyword control rust">for</span> n <span class="keyword operator rust">in</span> <span class="keyword operator rust">&amp;</span>nums <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+            skip_list.<span class="support function rust">insert</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="keyword operator rust">*</span>n</span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+        </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span>
+
+        <span class="support macro rust">assert_eq!</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span>skip_list.<span class="support function rust">contains</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="constant numeric integer decimal rust">3</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation separator rust">,</span> <span class="constant language rust">true</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+        <span class="support macro rust">assert_eq!</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span>skip_list.<span class="support function rust">contains</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="constant numeric integer decimal rust">4</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation separator rust">,</span> <span class="constant language rust">false</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation terminator rust">;</span>
+    </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span>
+</span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span></span>
+</pre></div>
+  </div>
+  </body>
+</html>
