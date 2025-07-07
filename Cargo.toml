@@ -1,0 +1,9 @@
+[package]
+name = "litcode"
+edition = "2024"
+publish = false
+
+[dependencies]
+pulldown-cmark = "0.13.0"
+rand = "0.9.1"
+syntect = "5.2.0"
