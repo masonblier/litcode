@@ -72,7 +72,7 @@ fn output_html(
     writeln!(html, "  <div class=\"row\">")?;
     writeln!(html, "  <div class=\"doc_group\">")?;
     for line in read_to_string(src_file).unwrap().lines() {
-        if line.starts_with("///") {
+        if line.starts_with("//-") {
             if !reading_doc {
                 reading_doc = true;
                 let code_buf = strbuf.trim_end();
@@ -94,7 +94,7 @@ fn output_html(
                 strbuf = "".to_string();
             }
             // section dividers
-            if line.starts_with("//-") {
+            if line.starts_with("//=") {
                 writeln!(html, "  </div>")?;
                 writeln!(html, "  </div>")?;
                 writeln!(html, "  <div class=\"row\">")?;
@@ -129,6 +129,7 @@ fn main() -> Result<(), std::io::Error> {
     // generate html
     let ss = SyntaxSet::load_defaults_newlines();
 
+    output_html(&ss, "src/seaorm_nesting.rs", "seaorm_nesting.html", "Nested partial views in the SeaORM database framework")?;
     output_html(&ss, "src/skip_list.rs", "skip_list.html", "Skip List in Rust")?;
 
     // ---------------------------------------------------------------------------------------------
