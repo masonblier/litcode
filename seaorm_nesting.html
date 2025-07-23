@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Nested partial views in the SeaORM database framework</title>
+    <style type="text/css">
+@import url("theme-light.css") (prefers-color-scheme: light);
+@import url("theme-dark.css") (prefers-color-scheme: dark);
+
+body {
+    font-family: sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+    body {
+        background-color: #303033;
+        color: white;
+    }
+    a {
+        color: #31b2c4;
+    }
+    a:hover {
+        color: #34e2f9;
+    }
+    a:visited {
+        color: #337e87;
+    }
+    .code {
+        background-color: #212424;
+    }
+    .storage {
+        color: #86d583;
+    }
+    .variable {
+        color: #eadd76;
+    }
+    .constant.numeric {
+        color: #fb6c6c;
+    }
+    .doc_block code {
+        color: #87d6b5;
+    }
+}
+@media (prefers-color-scheme: light) {
+    body {
+        background-color: #eae5d9;
+    }
+    a {
+        color: #216294;
+    }
+    a:hover {
+        color: #2482a9;
+    }
+    a:visited {
+        color: #446289;
+    }
+    .doc_block code {
+        color: #089f3d;
+    }
+}
+pre {
+    font-size:13px;
+    font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+}
+h1 {
+    margin-top: 25px;
+    margin-bottom: 0;
+}
+
+.row {
+    margin: 0 auto;
+    max-width: 700px;
+}
+.doc_group {
+    flex-grow: 1;
+    padding: 0 20px;
+}
+.code_block {
+    flex-grow: 1;
+}
+.code {
+    padding: 20px;
+}
+
+@media screen and (min-width: 1400px) {
+    .row {
+        display: flex;
+        flex-direction: row;
+        max-width: 1400px;
+    }
+    .doc_group {
+        width: 50%;
+    }
+    .code_block {
+        width: 780px;
+        padding: 10px 0;
+    }
+}
+
+    </style>
+  </head>
+  <body>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<h2>Nested partial views in the SeaORM database framework</h2>
+<p>A discussion of nested views in SeaORM Rust ORM Database client
+By <a href="https://github.com/masonblier">masonblier</a> 2025-07-22</p>
+
+</div>
+<div class="doc_block">
+<p><a href="https://www.sea-ql.org/SeaORM/">SeaORM</a> is an object-relational mapping library for Sqlite, MySQL,
+and PostgreSQL for the Rust programming languages. It's major advantages are its <code>async</code>/<code>await</code>
+tooling and abstraction over the subtle differences between the three major SQL databases. It also
+comes with with a full GraphQL abstraction framework called <a href="https://github.com/SeaQL/seaography">Seaography</a>.
+SeaORM is great for backend Rust applications and integrates easily with any web server, such as the
+fully async <a href="https://github.com/tokio-rs/axum">Axum</a> framework.</p>
+
+</div>
+  </div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>SeaORM has full support for migrations and a tool to generate <code>Entity</code> classes (models) from the
+database schema, eliminating the need to define the data structures in multiple places. It also
+supports relational mapping suchs as one-to-one, one-to-many, and many-to-many through foreign keys.</p>
+
+</div>
+<div class="doc_block">
+<p>In this example, I define an <code>Employee</code> table with some basic info about a company, and a foreign key
+creating a many-to-one relationship between <code>Employee</code> and <code>Company</code> records. SeaORM updates the database
+using this migration, and with the <code>sea-orm-cli generate entity</code> command, <code>Entity</code> classes for use in
+application code are generated automatically, including relationship definitions and a variety of
+query building helpers</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">async_trait</span>::<span class="variable annotation rust">async_trait</span><span class="punctuation section group end rust">]</span></span>
+<span class="meta impl rust"><span class="storage type impl rust">impl</span> </span><span class="meta impl rust">MigrationTrait <span class="keyword other rust">for</span></span><span class="meta impl rust"> <span class="entity name impl rust">Migration</span> </span><span class="meta impl rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+    async <span class="meta function rust"><span class="meta function rust"><span class="storage type function rust">fn</span> </span><span class="entity name function rust">up</span></span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters begin rust">(</span><span class="keyword operator rust">&amp;</span><span class="variable parameter rust">self</span>, <span class="variable parameter rust">manager</span><span class="punctuation separator rust">:</span> <span class="keyword operator rust">&amp;</span>SchemaManager</span><span class="meta function rust"><span class="meta function parameters rust"><span class="punctuation section parameters end rust">)</span></span></span></span><span class="meta function rust"> <span class="meta function return-type rust"><span class="punctuation separator rust">-&gt;</span> <span class="meta generic rust">Result<span class="punctuation definition generic begin rust">&lt;</span><span class="punctuation section group begin rust">(</span><span class="punctuation section group end rust">)</span>, DbErr<span class="punctuation definition generic end rust">&gt;</span></span></span> </span><span class="meta function rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+        manager
+            .<span class="support function rust">create_table</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span>
+                <span class="meta path rust">Table<span class="punctuation accessor rust">::</span></span>create<span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+                    .<span class="support function rust">table</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="meta path rust">Employee<span class="punctuation accessor rust">::</span></span>Table</span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+                    .<span class="support function rust">if_not_exists</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+                    .<span class="support function rust">col</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="support function rust">pk_auto</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="meta path rust">Employee<span class="punctuation accessor rust">::</span></span>Id</span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+                    .<span class="support function rust">col</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="meta path rust">ColumnDef<span class="punctuation accessor rust">::</span></span>new<span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="meta path rust">Employee<span class="punctuation accessor rust">::</span></span>Name</span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+                        .<span class="support function rust">string</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>.<span class="support function rust">not_null</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>.<span class="support function rust">unique_key</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+                    .<span class="support function rust">col</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="meta path rust">ColumnDef<span class="punctuation accessor rust">::</span></span>new<span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="meta path rust">Employee<span class="punctuation accessor rust">::</span></span>CompanyId</span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>.<span class="support function rust">integer</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>.<span class="support function rust">not_null</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+                    .<span class="support function rust">foreign_key</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span>
+                        <span class="meta path rust">ForeignKey<span class="punctuation accessor rust">::</span></span>create<span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+                            .<span class="support function rust">name</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span>fk-employee-company_id<span class="punctuation definition string end rust">&quot;</span></span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+                            .<span class="support function rust">from</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="meta path rust">Employee<span class="punctuation accessor rust">::</span></span>Table<span class="punctuation separator rust">,</span> <span class="meta path rust">Employee<span class="punctuation accessor rust">::</span></span>CompanyId</span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+                            .<span class="support function rust">to</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="meta path rust">Company<span class="punctuation accessor rust">::</span></span>Table<span class="punctuation separator rust">,</span> <span class="meta path rust">Company<span class="punctuation accessor rust">::</span></span>Id</span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation separator rust">,</span>
+                    </span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+                    .<span class="support function rust">to_owned</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation separator rust">,</span>
+            </span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+            .await
+    </span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span>
+</span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span>
+
+<span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">derive</span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span></span><span class="meta annotation parameters rust"><span class="meta group rust">DeriveIden</span></span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="punctuation section group end rust">]</span></span>
+<span class="meta enum rust"><span class="storage modifier rust">pub</span> <span class="storage type enum rust">enum</span> <span class="entity name enum rust">Employee</span> <span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+    Table<span class="punctuation separator rust">,</span>
+    Id<span class="punctuation separator rust">,</span>
+    Name<span class="punctuation separator rust">,</span>
+    Company
+</span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<h1>Partial Views</h1>
+<p>One of its lesser-known features are it's partial <code>View</code> classes, which allow querying of a subset of fields
+from a table. This allows getting only the rows you want to use in a given context, such as showing
+public information to an end user without revealing private information. These partial views are
+derived using the <code>DerivePartialModel</code> and <code>FromQueryResult</code> declarative macros.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="comment line double-slash rust"><span class="punctuation definition comment rust">//</span> from entity_views/company.rs
+</span><span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">derive</span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span></span><span class="meta annotation parameters rust"><span class="meta group rust">DerivePartialModel<span class="punctuation separator rust">,</span> FromQueryResult<span class="punctuation separator rust">,</span> Serialize</span></span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="punctuation section group end rust">]</span></span>
+<span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">sea_orm</span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span></span><span class="meta annotation parameters rust"><span class="meta group rust">entity <span class="keyword operator rust">=</span> <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span>Entity<span class="punctuation definition string end rust">&quot;</span></span></span></span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="punctuation section group end rust">]</span></span>
+<span class="meta struct rust"><span class="storage modifier rust">pub</span> <span class="storage type struct rust">struct</span> </span><span class="meta struct rust"><span class="entity name struct rust">CompanyView</span> </span><span class="meta struct rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+    <span class="storage modifier rust">pub</span> <span class="variable other member rust">id</span><span class="punctuation separator rust">:</span> <span class="storage type rust">i32</span>,
+    <span class="storage modifier rust">pub</span> <span class="variable other member rust">name</span><span class="punctuation separator rust">:</span> String,
+    <span class="storage modifier rust">pub</span> <span class="variable other member rust">address</span><span class="punctuation separator rust">:</span> String,
+</span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>This can be extended to relational models as well with the <code>nested</code> attribute macro. SeaORM can
+figure out based on the object definition how other tables need to be queried and build the
+necessary JOIN clauses to pull all the data in a single query, reducing <code>N+1</code> data transfers.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="keyword other rust">use</span> <span class="meta path rust"><span class="keyword other rust">super</span><span class="punctuation accessor rust">::</span></span>CompanyView<span class="punctuation terminator rust">;</span>
+
+<span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">derive</span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span></span><span class="meta annotation parameters rust"><span class="meta group rust">DerivePartialModel<span class="punctuation separator rust">,</span> FromQueryResult<span class="punctuation separator rust">,</span> Serialize</span></span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="punctuation section group end rust">]</span></span>
+<span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">sea_orm</span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span></span><span class="meta annotation parameters rust"><span class="meta group rust">entity <span class="keyword operator rust">=</span> <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span>Entity<span class="punctuation definition string end rust">&quot;</span></span></span></span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="punctuation section group end rust">]</span></span>
+<span class="meta struct rust"><span class="storage modifier rust">pub</span> <span class="storage type struct rust">struct</span> </span><span class="meta struct rust"><span class="entity name struct rust">EmployeeView</span> </span><span class="meta struct rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+    <span class="storage modifier rust">pub</span> <span class="variable other member rust">id</span><span class="punctuation separator rust">:</span> <span class="storage type rust">i32</span>,
+    <span class="storage modifier rust">pub</span> <span class="variable other member rust">name</span><span class="punctuation separator rust">:</span> String,
+    #[sea_orm(nested)]
+    <span class="storage modifier rust">pub</span> <span class="variable other member rust">company</span><span class="punctuation separator rust">:</span> CompanyView,
+</span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>These partial views can be queried with the <code>.into_partial_model()</code> method in the query builder.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="storage type rust">let</span> rows<span class="punctuation separator rust">:</span> <span class="meta generic rust">Vec<span class="punctuation definition generic begin rust">&lt;</span>EmployeeView<span class="punctuation definition generic end rust">&gt;</span></span> <span class="keyword operator rust">=</span> <span class="meta path rust">Employee<span class="punctuation accessor rust">::</span></span>find<span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+    .<span class="support function rust">join_as</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span>
+        <span class="meta path rust">JoinType<span class="punctuation accessor rust">::</span></span>InnerJoin<span class="punctuation separator rust">,</span>
+        <span class="meta path rust">employee<span class="punctuation accessor rust">::</span></span><span class="meta path rust">Relation<span class="punctuation accessor rust">::</span></span>Company.<span class="support function rust">def</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span><span class="punctuation separator rust">,</span>
+        <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span>company<span class="punctuation definition string end rust">&quot;</span></span><span class="punctuation separator rust">,</span>
+    </span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+    .<span class="support function rust">into_partial_model</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>
+    .<span class="support function rust">all</span><span class="meta group rust"><span class="punctuation section group begin rust">(</span><span class="keyword operator rust">&amp;</span>db</span><span class="meta group rust"><span class="punctuation section group end rust">)</span></span>.await<span class="keyword operator rust">?</span><span class="punctuation terminator rust">;</span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>Unfortunately, this is where SeaORM currently falls short of a magic wand. When querying partial
+objects through a <code>join_as</code>, the query builder can't automatically determined the names for columns
+queried from other tables. I currently fix this by creating views specialized for each query, with
+attribute macros defining the column name generated by the join query.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">derive</span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span></span><span class="meta annotation parameters rust"><span class="meta group rust">DerivePartialModel<span class="punctuation separator rust">,</span> FromQueryResult<span class="punctuation separator rust">,</span> Serialize</span></span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="punctuation section group end rust">]</span></span>
+<span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">sea_orm</span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span></span><span class="meta annotation parameters rust"><span class="meta group rust">entity <span class="keyword operator rust">=</span> <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span>Entity<span class="punctuation definition string end rust">&quot;</span></span></span></span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="punctuation section group end rust">]</span></span>
+<span class="meta struct rust"><span class="storage modifier rust">pub</span> <span class="storage type struct rust">struct</span> </span><span class="meta struct rust"><span class="entity name struct rust">EmployeeCompanyView</span> </span><span class="meta struct rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+    #[sea_orm(from_alias = &quot;company_id&quot;)]
+    <span class="storage modifier rust">pub</span> <span class="variable other member rust">id</span><span class="punctuation separator rust">:</span> <span class="storage type rust">i32</span>,
+    #[sea_orm(from_alias = &quot;company_name&quot;)]
+    <span class="storage modifier rust">pub</span> <span class="variable other member rust">name</span><span class="punctuation separator rust">:</span> String,
+    #[sea_orm(from_alias = &quot;company_address&quot;)]
+    <span class="storage modifier rust">pub</span> <span class="variable other member rust">address</span><span class="punctuation separator rust">:</span> String,
+</span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>While this is often necessary to do anyways, due to the different column subset requirements of
+complex queries, it can become unwieldy. When querying a third nested <code>View</code>, the table name of
+both parent tables are included in the field alias name. This <code>View</code> can't be used in any other query.</p>
+
+</div>
+  </div>
+<div class="code_block"><pre class="code">
+<span class="source rust"><span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">derive</span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span></span><span class="meta annotation parameters rust"><span class="meta group rust">DerivePartialModel<span class="punctuation separator rust">,</span> FromQueryResult<span class="punctuation separator rust">,</span> Serialize</span></span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="punctuation section group end rust">]</span></span>
+<span class="meta annotation rust"><span class="punctuation definition annotation rust">#</span><span class="punctuation section group begin rust">[</span><span class="variable annotation rust">sea_orm</span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group begin rust">(</span></span></span><span class="meta annotation parameters rust"><span class="meta group rust">entity <span class="keyword operator rust">=</span> <span class="string quoted double rust"><span class="punctuation definition string begin rust">&quot;</span>Entity<span class="punctuation definition string end rust">&quot;</span></span></span></span><span class="meta annotation parameters rust"><span class="meta group rust"><span class="punctuation section group end rust">)</span></span></span><span class="punctuation section group end rust">]</span></span>
+<span class="meta struct rust"><span class="storage modifier rust">pub</span> <span class="storage type struct rust">struct</span> </span><span class="meta struct rust"><span class="entity name struct rust">EmployeeCompanyCountryView</span> </span><span class="meta struct rust"><span class="meta block rust"><span class="punctuation section block begin rust">{</span>
+    #[sea_orm(from_alias = &quot;company_country_id&quot;)]
+    <span class="storage modifier rust">pub</span> <span class="variable other member rust">id</span><span class="punctuation separator rust">:</span> <span class="storage type rust">i32</span>,
+    #[sea_orm(from_alias = &quot;company_country_name&quot;)]
+    <span class="storage modifier rust">pub</span> <span class="variable other member rust">name</span><span class="punctuation separator rust">:</span> String,
+</span><span class="meta block rust"><span class="punctuation section block end rust">}</span></span></span></span>
+</pre></div>
+  </div>
+  <div class="row">
+  <div class="doc_group">
+<div class="doc_block">
+<p>Despite this, <a href="https://www.sea-ql.org/SeaORM/">SeaORM</a> is a well capable database layer for almost any application. The advantages of
+using a higher-level abstraction to easily swap the database backend is essential for automating
+integration tests or building libraries deployed to a client's existing setup. Hopefully in future
+versions, nested relationships can be revamped to provide even more automatic code generation, leaving
+the tedious work of low-level type mangling to the compiler.</p>
+
+</div>
+  </div>
+  </body>
+</html>
